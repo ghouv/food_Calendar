@@ -15,7 +15,19 @@ final class TodayMealsViewModel: ObservableObject {
         let grams: Int
     }
 
-    @Published var selectedDate: Date
+    @Published var selectedDate: Date {
+        didSet {
+            let normalized = calendar.startOfDay(for: selectedDate)
+            if normalized != selectedDate {
+                selectedDate = normalized
+                return
+            }
+
+            if !calendar.isDate(normalized, inSameDayAs: oldValue) {
+                fetchMealsForSelectedDate()
+            }
+        }
+    }
     @Published var mealsForSelectedDate: [MealEntity] = []
     var goal: HealthGoal = .maintain
 
@@ -63,7 +75,8 @@ final class TodayMealsViewModel: ObservableObject {
         meal.carbs = Int64(carbs)
         meal.protein = Int64(protein)
         meal.fat = Int64(fat)
-        meal.eatenAt = selectedDate
+        meal.eatenAt = calendar.startOfDay(for: selectedDate)
+        meal.isFavorite = false
 
         do {
             try context.save()
@@ -104,6 +117,68 @@ final class TodayMealsViewModel: ObservableObject {
         } catch {
             context.rollback()
             print("Failed to update meal: \(error.localizedDescription)")
+        }
+    }
+
+    func toggleFavorite(for meal: MealEntity) {
+        meal.isFavorite.toggle()
+        do {
+            try context.save()
+            fetchMealsForSelectedDate()
+        } catch {
+            context.rollback()
+            print("Failed to toggle favorite: \(error.localizedDescription)")
+        }
+    }
+
+    func favoriteMeals() -> [MealEntity] {
+        let request: NSFetchRequest<MealEntity> = MealEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "isFavorite == %@", NSNumber(value: true))
+        request.sortDescriptors = [
+            NSSortDescriptor(keyPath: \MealEntity.name, ascending: true),
+            NSSortDescriptor(keyPath: \MealEntity.eatenAt, ascending: false)
+        ]
+
+        do {
+            return try context.fetch(request)
+        } catch {
+            print("Failed to fetch favorites: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func addMeal(from favorite: MealEntity) {
+        let meal = MealEntity(context: context)
+        meal.id = UUID()
+        meal.name = favorite.name
+        meal.calories = favorite.calories
+        meal.carbs = favorite.carbs
+        meal.protein = favorite.protein
+        meal.fat = favorite.fat
+        meal.isFavorite = false
+        meal.eatenAt = calendar.startOfDay(for: selectedDate)
+
+        do {
+            try context.save()
+            fetchMealsForSelectedDate()
+        } catch {
+            context.rollback()
+            print("Failed to add meal from favorite: \(error.localizedDescription)")
+        }
+    }
+
+    func removeFavorites(at offsets: IndexSet, from favorites: [MealEntity]) {
+        for index in offsets {
+            let meal = favorites[index]
+            meal.isFavorite = false
+        }
+
+        do {
+            try context.save()
+            fetchMealsForSelectedDate()
+        } catch {
+            context.rollback()
+            print("Failed to remove favorites: \(error.localizedDescription)")
         }
     }
 
@@ -161,13 +236,20 @@ final class TodayMealsViewModel: ObservableObject {
         ]
     }
 
+    func weekDates(for date: Date) -> [Date] {
+        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+        return (0..<7).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset, to: startOfWeek)
+        }
+    }
+
     private func fetchMealsForSelectedDate() {
         mealsForSelectedDate = fetchMeals(on: selectedDate)
     }
 
     private func fetchMeals(on date: Date) -> [MealEntity] {
         let request: NSFetchRequest<MealEntity> = MealEntity.fetchRequest()
-        guard let bounds = dayBounds(for: date) else { return [] }
+        let bounds = dayRange(for: date)
 
         request.predicate = NSPredicate(format: "(eatenAt >= %@) AND (eatenAt < %@)", bounds.start as NSDate, bounds.end as NSDate)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \MealEntity.eatenAt, ascending: true)]
@@ -180,9 +262,9 @@ final class TodayMealsViewModel: ObservableObject {
         }
     }
 
-    private func dayBounds(for date: Date) -> (start: Date, end: Date)? {
-        let startOfDay = calendar.startOfDay(for: date)
-        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return nil }
-        return (startOfDay, endOfDay)
+    private func dayRange(for date: Date) -> (start: Date, end: Date) {
+        let start = calendar.startOfDay(for: date)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        return (start, end)
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MonthlyCalendarView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: TodayMealsViewModel
 
     @State private var displayedMonth: Date
@@ -82,30 +83,33 @@ struct MonthlyCalendarView: View {
                 let isSelected = calendar.isDate(date, inSameDayAs: viewModel.selectedDate)
                 let calories = viewModel.totalCalories(on: date)
 
-                VStack(spacing: 6) {
-                    Text("\(calendar.component(.day, from: date))")
-                        .fontWeight(isSelected ? .bold : .regular)
-                        .padding(6)
-                        .background(
-                            Circle()
-                                .strokeBorder(isToday ? Color.accentColor : Color.clear, lineWidth: 1)
-                                .background(
-                                    Circle()
-                                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-                                )
-                        )
-                        .clipShape(Circle())
-
-                    Text("\(calories) kcal")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(4)
-                .contentShape(Rectangle())
-                .onTapGesture {
+                Button {
                     viewModel.selectedDate = date
+                    dismiss()
+                } label: {
+                    VStack(spacing: 6) {
+                        Text("\(calendar.component(.day, from: date))")
+                            .fontWeight(isSelected ? .bold : .regular)
+                            .padding(6)
+                            .background(
+                                Circle()
+                                    .strokeBorder(isToday ? Color.accentColor : Color.clear, lineWidth: 1)
+                                    .background(
+                                        Circle()
+                                            .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                                    )
+                            )
+                            .clipShape(Circle())
+
+                        Text("\(calories) kcal")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(4)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             } else {
                 Color.clear
             }

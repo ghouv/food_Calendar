@@ -10,19 +10,19 @@ struct WeeklySummaryView: View {
         return formatter
     }()
 
-    private var lastSevenDays: [Date] {
-        (0..<7).compactMap { calendar.date(byAdding: .day, value: -$0, to: viewModel.selectedDate) }
+    private var weekDates: [Date] {
+        viewModel.weekDates(for: viewModel.selectedDate)
     }
 
     var body: some View {
         List {
-            ForEach(lastSevenDays, id: \.self) { date in
+            ForEach(weekDates, id: \.self) { date in
                 HStack {
                     Text(dateFormatter.string(from: date))
                         .fontWeight(calendar.isDate(date, inSameDayAs: viewModel.selectedDate) ? .bold : .regular)
                     Spacer()
                     Text("\(viewModel.totalCalories(on: date)) kcal")
-                        .foregroundColor(calendar.isDate(date, inSameDayAs: viewModel.selectedDate) ? .accentColor : .primary)
+                        .foregroundColor(calendar.isDate(date, inSameDayAs: viewModel.selectedDate) ? .accentColor : .secondary)
                 }
             }
         }

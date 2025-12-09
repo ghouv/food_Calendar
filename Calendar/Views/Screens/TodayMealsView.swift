@@ -10,12 +10,7 @@ struct TodayMealsView: View {
     @State private var protein: Int? = nil
     @State private var fat: Int? = nil
 
-    @State private var mealBeingEdited: MealEntity? = nil
-    @State private var editName = ""
-    @State private var editCalories: Int? = nil
-    @State private var editCarbs: Int? = nil
-    @State private var editProtein: Int? = nil
-    @State private var editFat: Int? = nil
+    @State private var selectedMealForDetail: MealEntity? = nil
 
     init(viewModel: TodayMealsViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -45,7 +40,7 @@ struct TodayMealsView: View {
                         mealRow(meal)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                startEditing(meal)
+                                selectedMealForDetail = meal
                             }
                     }
                     .onDelete(perform: viewModel.deleteMeals(at:))
@@ -64,6 +59,9 @@ struct TodayMealsView: View {
                         }
                         NavigationLink("통계") {
                             AnalyticsView(viewModel: viewModel)
+                        }
+                        NavigationLink("즐겨찾기") {
+                            FavoritesView(viewModel: viewModel)
                         }
                     }
                 }
@@ -110,39 +108,8 @@ struct TodayMealsView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
-            .sheet(item: $mealBeingEdited) { meal in
-                NavigationStack {
-                    Form {
-                        Section("이름") {
-                            TextField("예: 닭가슴살 샐러드", text: $editName)
-                        }
-                        Section("영양 정보") {
-                            TextField("칼로리", value: $editCalories, format: .number)
-                                .keyboardType(.numberPad)
-                            TextField("탄수화물 (g)", value: $editCarbs, format: .number)
-                                .keyboardType(.numberPad)
-                            TextField("단백질 (g)", value: $editProtein, format: .number)
-                                .keyboardType(.numberPad)
-                            TextField("지방 (g)", value: $editFat, format: .number)
-                                .keyboardType(.numberPad)
-                        }
-                    }
-                    .navigationTitle("식사 수정")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("취소") {
-                                mealBeingEdited = nil
-                            }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("저장") {
-                                saveEdits(for: meal)
-                            }
-                            .disabled(!canSaveEdits)
-                        }
-                    }
-                }
-                .presentationDetents([.medium, .large])
+            .sheet(item: $selectedMealForDetail) { meal in
+                MealDetailView(viewModel: viewModel, meal: meal)
             }
         }
     }
@@ -154,6 +121,7 @@ struct TodayMealsView: View {
             } label: {
                 Image(systemName: "chevron.left")
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
@@ -167,6 +135,7 @@ struct TodayMealsView: View {
             } label: {
                 Image(systemName: "chevron.right")
             }
+            .buttonStyle(.plain)
         }
     }
 
@@ -255,25 +224,6 @@ struct TodayMealsView: View {
         isPresentingAdd = false
     }
 
-    private func startEditing(_ meal: MealEntity) {
-        mealBeingEdited = meal
-        editName = meal.name ?? ""
-        editCalories = Int(meal.calories)
-        editCarbs = Int(meal.carbs)
-        editProtein = Int(meal.protein)
-        editFat = Int(meal.fat)
-    }
-
-    private var canSaveEdits: Bool {
-        guard let editCalories, let editCarbs, let editProtein, let editFat else { return false }
-        return !editName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && editCalories >= 0 && editCarbs >= 0 && editProtein >= 0 && editFat >= 0
-    }
-
-    private func saveEdits(for meal: MealEntity) {
-        guard let editCalories, let editCarbs, let editProtein, let editFat else { return }
-        viewModel.updateMeal(meal, name: editName, calories: editCalories, carbs: editCarbs, protein: editProtein, fat: editFat)
-        mealBeingEdited = nil
-    }
 }
 
 #Preview {
