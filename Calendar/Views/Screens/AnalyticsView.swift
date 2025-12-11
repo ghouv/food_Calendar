@@ -16,6 +16,8 @@ struct AnalyticsView: View {
 
     @ObservedObject var viewModel: TodayMealsViewModel
     @State private var selectedRange: AnalyticsRange = .week
+    @State private var isEditingGoal = false
+    @State private var tempGoal: Int = CalorieGoalManager.dailyGoal
 
     private var summaries: [TodayMealsViewModel.DailySummary] {
         viewModel.dailySummaries(forLast: selectedRange.days)
@@ -32,11 +34,7 @@ struct AnalyticsView: View {
     }
 
     private var calorieGoalProgress: Double {
-        guard !summaries.isEmpty else { return 0 }
-        let total = Double(viewModel.totalCalories(in: summaries))
-        let target = Double(viewModel.targetCaloriesPerDay * summaries.count)
-        guard target > 0 else { return 0 }
-        return min(total / target, 1.0)
+        viewModel.dailyProgress
     }
 
     var body: some View {
@@ -126,15 +124,19 @@ struct AnalyticsView: View {
                     Text("목표 대비 진척도")
                         .font(.headline)
 
-                    let percent = Int(calorieGoalProgress * 100)
+                    let percent = Int((calorieGoalProgress * 100).rounded())
 
                     ProgressView(value: calorieGoalProgress)
                         .progressViewStyle(.linear)
                         .tint(.blue)
 
-                    Text("목표 대비 \(percent)% 달성")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("목표: \(viewModel.goalCalories) kcal")
+                            .font(.caption)
+                        Text("목표 대비 \(percent)% 달성")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 .padding()
                 .background(Color(.systemBackground))
@@ -149,6 +151,40 @@ struct AnalyticsView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("통계")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    tempGoal = CalorieGoalManager.dailyGoal
+                    isEditingGoal = true
+                } label: {
+                    Image(systemName: "target")
+                }
+            }
+        }
+        .sheet(isPresented: $isEditingGoal) {
+            NavigationStack {
+                Form {
+                    Section("하루 목표 칼로리") {
+                        TextField("예: 1800", value: $tempGoal, format: .number)
+                            .keyboardType(.numberPad)
+                    }
+                }
+                .navigationTitle("목표 설정")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("취소") { isEditingGoal = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("저장") {
+                            if tempGoal > 0 {
+                                CalorieGoalManager.dailyGoal = tempGoal
+                            }
+                            isEditingGoal = false
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

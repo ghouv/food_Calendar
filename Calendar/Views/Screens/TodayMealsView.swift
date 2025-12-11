@@ -215,6 +215,18 @@ struct TodayMealsView: View {
                 macroPill(label: "단백질", value: viewModel.totalProtein, unit: "g", color: .green)
                 macroPill(label: "지방", value: viewModel.totalFat, unit: "g", color: .blue)
             }
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("목표: \(viewModel.goalCalories) kcal")
+                    .font(.caption)
+
+                ProgressView(value: viewModel.dailyProgress)
+                    .tint(.blue)
+
+                Text("진척도: \((viewModel.dailyProgress * 100).rounded())%")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding(16)
         .background(

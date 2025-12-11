@@ -61,6 +61,15 @@ final class TodayMealsViewModel: ObservableObject {
         mealsForSelectedDate.reduce(0) { $0 + Int($1.fat) }
     }
 
+    var goalCalories: Int {
+        CalorieGoalManager.dailyGoal
+    }
+
+    var dailyProgress: Double {
+        guard goalCalories > 0 else { return 0 }
+        return Double(totalCalories) / Double(goalCalories)
+    }
+
     var statusMessage: String {
         let target = goal.targetCalories
         if totalCalories < target - 200 {
