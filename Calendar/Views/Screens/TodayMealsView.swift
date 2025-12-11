@@ -316,5 +316,6 @@ private struct PreviewTodayMealsView: View {
 
     var body: some View {
         TodayMealsView(context: context)
+            .environment(\.managedObjectContext, context)
     }
 }

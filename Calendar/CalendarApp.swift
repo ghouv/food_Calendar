@@ -10,17 +10,14 @@ import CoreData
 
 @main
 struct CalendarApp: App {
-    let persistenceController = PersistenceController.shared
-    private let rootViewModel: TodayMealsViewModel
-
-    init() {
-        rootViewModel = TodayMealsViewModel(context: persistenceController.viewContext)
-    }
+    private let persistenceController = PersistenceController.shared
 
     var body: some Scene {
         WindowGroup {
-            TodayMealsView(viewModel: rootViewModel)
-                .environment(\.managedObjectContext, persistenceController.viewContext)
+            let context = persistenceController.container.viewContext
+
+            TodayMealsView(context: context)
+                .environment(\.managedObjectContext, context)
         }
     }
 }
