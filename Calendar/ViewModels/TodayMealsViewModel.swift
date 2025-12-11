@@ -15,6 +15,15 @@ final class TodayMealsViewModel: ObservableObject {
         let grams: Int
     }
 
+    struct DailySummary: Identifiable {
+        let id = UUID()
+        let date: Date
+        let totalCalories: Int
+        let totalCarbs: Int
+        let totalProtein: Int
+        let totalFat: Int
+    }
+
     @Published var selectedDate: Date {
         didSet {
             let normalized = calendar.startOfDay(for: selectedDate)
@@ -29,7 +38,9 @@ final class TodayMealsViewModel: ObservableObject {
         }
     }
     @Published var mealsForSelectedDate: [MealEntity] = []
+    @Published var filteredMealsForSelectedDate: [MealEntity] = []
     var goal: HealthGoal = .maintain
+    let targetCaloriesPerDay: Int = 2000
 
     private let context: NSManagedObjectContext
     private let calendar = Calendar.current
@@ -61,7 +72,7 @@ final class TodayMealsViewModel: ObservableObject {
         }
     }
 
-    init(context: NSManagedObjectContext, date: Date = Date()) {
+    init(context: NSManagedObjectContext = PersistenceController.shared.container.viewContext, date: Date = Date()) {
         self.context = context
         self.selectedDate = date
         fetchMealsForSelectedDate()
@@ -100,7 +111,7 @@ final class TodayMealsViewModel: ObservableObject {
     }
 
     func deleteMeals(at offsets: IndexSet) {
-        let meals = offsets.map { mealsForSelectedDate[$0] }
+        let meals = offsets.map { filteredMealsForSelectedDate[$0] }
         meals.forEach { deleteMeal($0) }
     }
 
@@ -147,6 +158,17 @@ final class TodayMealsViewModel: ObservableObject {
         }
     }
 
+    func allMeals() -> [MealEntity] {
+        let request: NSFetchRequest<MealEntity> = MealEntity.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \MealEntity.eatenAt, ascending: false)]
+        do {
+            return try context.fetch(request)
+        } catch {
+            print("Failed to fetch meals: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     func addMeal(from favorite: MealEntity) {
         let meal = MealEntity(context: context)
         meal.id = UUID()
@@ -187,6 +209,11 @@ final class TodayMealsViewModel: ObservableObject {
             selectedDate = newDate
             fetchMealsForSelectedDate()
         }
+    }
+
+    func goTo(date: Date) {
+        selectedDate = calendar.startOfDay(for: date)
+        fetchMealsForSelectedDate()
     }
 
     func meals(on date: Date) -> [MealEntity] {
@@ -245,6 +272,7 @@ final class TodayMealsViewModel: ObservableObject {
 
     private func fetchMealsForSelectedDate() {
         mealsForSelectedDate = fetchMeals(on: selectedDate)
+        filteredMealsForSelectedDate = mealsForSelectedDate
     }
 
     private func fetchMeals(on date: Date) -> [MealEntity] {
@@ -266,5 +294,83 @@ final class TodayMealsViewModel: ObservableObject {
         let start = calendar.startOfDay(for: date)
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
         return (start, end)
+    }
+
+    /// 최근 n일 동안의 일별 요약 데이터 (오늘 포함, 과거 방향)
+    func dailySummaries(forLast days: Int) -> [DailySummary] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        var result: [DailySummary] = []
+
+        for offset in 0..<days {
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
+            let startOfDay = calendar.startOfDay(for: day)
+            guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { continue }
+
+            let mealsForDay = fetchMeals(on: startOfDay).filter { meal in
+                guard let eatenAt = meal.eatenAt else { return false }
+                return eatenAt >= startOfDay && eatenAt < endOfDay
+            }
+
+            let totalCalories = mealsForDay.reduce(0) { $0 + Int($1.calories) }
+            let totalCarbs = mealsForDay.reduce(0) { $0 + Int($1.carbs) }
+            let totalProtein = mealsForDay.reduce(0) { $0 + Int($1.protein) }
+            let totalFat = mealsForDay.reduce(0) { $0 + Int($1.fat) }
+
+            let summary = DailySummary(
+                date: startOfDay,
+                totalCalories: totalCalories,
+                totalCarbs: totalCarbs,
+                totalProtein: totalProtein,
+                totalFat: totalFat
+            )
+            result.append(summary)
+        }
+
+        return result.sorted { $0.date < $1.date }
+    }
+
+    func totalCalories(in summaries: [DailySummary]) -> Int {
+        summaries.reduce(0) { $0 + $1.totalCalories }
+    }
+
+    func macroTotals(in summaries: [DailySummary]) -> (carbs: Int, protein: Int, fat: Int) {
+        let carbs = summaries.reduce(0) { $0 + $1.totalCarbs }
+        let protein = summaries.reduce(0) { $0 + $1.totalProtein }
+        let fat = summaries.reduce(0) { $0 + $1.totalFat }
+        return (carbs, protein, fat)
+    }
+
+    func clearSearchFilter() {
+        filteredMealsForSelectedDate = mealsForSelectedDate
+    }
+
+    func applySearchFilter(with keyword: String) {
+        let lowercased = keyword.lowercased()
+        filteredMealsForSelectedDate = mealsForSelectedDate.filter { meal in
+            let name = (meal.name ?? "").lowercased()
+            return name.contains(lowercased)
+        }
+    }
+
+    func copyMealToToday(_ meal: MealEntity) {
+        let newMeal = MealEntity(context: context)
+        newMeal.id = UUID()
+        newMeal.name = meal.name
+        newMeal.calories = meal.calories
+        newMeal.carbs = meal.carbs
+        newMeal.protein = meal.protein
+        newMeal.fat = meal.fat
+        newMeal.eatenAt = calendar.startOfDay(for: Date())
+        newMeal.isFavorite = false
+
+        do {
+            try context.save()
+            fetchMealsForSelectedDate()
+        } catch {
+            context.rollback()
+            print("Failed to copy meal to today: \\(error.localizedDescription)")
+        }
     }
 }

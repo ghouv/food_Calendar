@@ -1,14 +1,19 @@
 import SwiftUI
 import CoreData
 
+@MainActor
 struct TodayMealsView: View {
     @StateObject private var viewModel: TodayMealsViewModel
+    private let nutritionService = NutritionAIService()
     @State private var isPresentingAdd = false
+    @State private var searchText: String = ""
     @State private var name = ""
     @State private var calories: Int? = nil
     @State private var carbs: Int? = nil
     @State private var protein: Int? = nil
     @State private var fat: Int? = nil
+    @State private var isLoadingAI = false
+    @State private var aiErrorMessage: String? = nil
 
     @State private var selectedMealForDetail: MealEntity? = nil
 
@@ -16,8 +21,8 @@ struct TodayMealsView: View {
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
-    init(context: NSManagedObjectContext) {
-        _viewModel = StateObject(wrappedValue: TodayMealsViewModel(context: context))
+    init(context: NSManagedObjectContext, date: Date = Date()) {
+        _viewModel = StateObject(wrappedValue: TodayMealsViewModel(context: context, date: date))
     }
 
     private var formattedDate: String {
@@ -26,45 +31,14 @@ struct TodayMealsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        dateHeader
-                        summaryCard
-                    }
-                    .listRowInsets(.init(top: 12, leading: 12, bottom: 12, trailing: 12))
-                }
-
-                Section("오늘의 식사") {
-                    ForEach(viewModel.mealsForSelectedDate, id: \.objectID) { meal in
-                        mealRow(meal)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedMealForDetail = meal
-                            }
-                    }
-                    .onDelete(perform: viewModel.deleteMeals(at:))
-                }
+            VStack(spacing: 16) {
+                topTabBar
+                mealsList
             }
-            .listStyle(.insetGrouped)
+            .searchable(text: $searchText, prompt: "식단 이름 검색")
+            .onChange(of: searchText, perform: handleSearchChange)
             .navigationTitle("식단 캘린더")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 12) {
-                        NavigationLink("주간 요약") {
-                            WeeklySummaryView(viewModel: viewModel)
-                        }
-                        NavigationLink("월간 보기") {
-                            MonthlyCalendarView(viewModel: viewModel)
-                        }
-                        NavigationLink("통계") {
-                            AnalyticsView(viewModel: viewModel)
-                        }
-                        NavigationLink("즐겨찾기") {
-                            FavoritesView(viewModel: viewModel)
-                        }
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         isPresentingAdd = true
@@ -74,44 +48,129 @@ struct TodayMealsView: View {
                 }
             }
             .sheet(isPresented: $isPresentingAdd) {
-                NavigationStack {
-                    Form {
-                        Section("이름") {
-                            TextField("예: 닭가슴살 샐러드", text: $name)
-                        }
-                        Section("영양 정보") {
-                            TextField("칼로리", value: $calories, format: .number)
-                                .keyboardType(.numberPad)
-                            TextField("탄수화물 (g)", value: $carbs, format: .number)
-                                .keyboardType(.numberPad)
-                            TextField("단백질 (g)", value: $protein, format: .number)
-                                .keyboardType(.numberPad)
-                            TextField("지방 (g)", value: $fat, format: .number)
-                                .keyboardType(.numberPad)
-                        }
-                    }
-                    .navigationTitle("식사 추가")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("취소") {
-                                resetForm()
-                                isPresentingAdd = false
-                            }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("저장") {
-                                saveMeal()
-                            }
-                            .disabled(!canSave)
-                        }
-                    }
-                }
-                .presentationDetents([.medium, .large])
+                addMealSheet
             }
             .sheet(item: $selectedMealForDetail) { meal in
                 MealDetailView(viewModel: viewModel, meal: meal)
             }
         }
+    }
+
+    private var topTabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                NavigationLink("주간 요약") {
+                    WeeklySummaryView(viewModel: viewModel)
+                }
+                NavigationLink("월간 보기") {
+                    MonthlyCalendarView(viewModel: viewModel)
+                }
+                NavigationLink("통계") {
+                    AnalyticsView(viewModel: viewModel)
+                }
+                NavigationLink("즐겨찾기") {
+                    FavoritesView(viewModel: viewModel)
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    private var mealsList: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    dateHeader
+                    summaryCard
+                }
+                .listRowInsets(.init(top: 12, leading: 12, bottom: 12, trailing: 12))
+            }
+
+            Section("오늘의 식사") {
+                ForEach(viewModel.filteredMealsForSelectedDate, id: \.objectID) { meal in
+                    mealRow(meal)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedMealForDetail = meal
+                        }
+                }
+                .onDelete(perform: viewModel.deleteMeals(at:))
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    private var addMealSheet: some View {
+        NavigationStack {
+            Form {
+                Section("이름") {
+                    TextField("예: 닭가슴살 샐러드", text: $name)
+                }
+                Section {
+                    Button {
+                        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                        isLoadingAI = true
+                        aiErrorMessage = nil
+
+                        nutritionService.fetchNutrition(for: name) { result in
+                            isLoadingAI = false
+                            switch result {
+                            case .success(let info):
+                                calories = info.calories
+                                carbs = info.carbs
+                                protein = info.protein
+                                fat = info.fat
+                            case .failure(let error):
+                                aiErrorMessage = error.localizedDescription
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isLoadingAI {
+                                ProgressView()
+                            }
+                            Text("AI로 영양성분 자동 채우기")
+                                .font(.callout)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .disabled(isLoadingAI)
+
+                    if let aiErrorMessage {
+                        Text(aiErrorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+                Section("영양 정보") {
+                    TextField("칼로리", value: $calories, format: .number)
+                        .keyboardType(.numberPad)
+                    TextField("탄수화물 (g)", value: $carbs, format: .number)
+                        .keyboardType(.numberPad)
+                    TextField("단백질 (g)", value: $protein, format: .number)
+                        .keyboardType(.numberPad)
+                    TextField("지방 (g)", value: $fat, format: .number)
+                        .keyboardType(.numberPad)
+                }
+            }
+            .navigationTitle("식사 추가")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") {
+                        resetForm()
+                        isPresentingAdd = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("저장") {
+                        saveMeal()
+                    }
+                    .disabled(!canSave)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     private var dateHeader: some View {
@@ -224,8 +283,26 @@ struct TodayMealsView: View {
         isPresentingAdd = false
     }
 
+    private func handleSearchChange(_ newValue: String) {
+        let trimmed = newValue.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+        if trimmed.isEmpty {
+            viewModel.clearSearchFilter()
+        } else {
+            viewModel.applySearchFilter(with: trimmed)
+        }
+    }
 }
 
 #Preview {
-    TodayMealsView(context: PersistenceController.shared.viewContext)
+    PreviewTodayMealsView()
+}
+
+@MainActor
+private struct PreviewTodayMealsView: View {
+    private let context = PersistenceController.preview.container.viewContext
+
+    var body: some View {
+        TodayMealsView(context: context)
+    }
 }

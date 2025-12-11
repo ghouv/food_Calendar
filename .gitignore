@@ -12,3 +12,6 @@ build/
 
 # Codex / Agents
 openai.log
+
+# Local secrets
+Config.swift
